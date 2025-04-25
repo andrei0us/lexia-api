@@ -2,32 +2,31 @@ from django.shortcuts import render
 
 # Create your views here.
 from django.http import JsonResponse
-from sklearn.cluster import KMeans
-import pandas as pd
-import MySQLdb
 from django.db import connection
 import pandas as pd
 from sklearn.cluster import KMeans
-from django.http import JsonResponse
-
 
 def perform_kmeans(request):
     with connection.cursor() as cursor:
-        # Adjust this to match your actual table and columns in Hostinger
-        cursor.execute("SELECT accuracy, consistency, speed, retention, problem_solving_skills, vocabulary_range FROM students_progress_tbl")
+        cursor.execute("""
+            SELECT accuracy, consistency, speed, retention, problem_solving_skills, vocabulary_range
+            FROM students_progress_tbl
+        """)
         rows = cursor.fetchall()
 
-    # Convert data to DataFrame
     df = pd.DataFrame(rows, columns=[
         "accuracy", "consistency", "speed", "retention", "problem_solving_skills", "vocabulary_range"
     ])
 
-    if len(df) < 3:
-        return JsonResponse({"error": "Not enough data for clustering"}, status=400)
+    # 🧼 Drop rows that have NaN values
+    df.dropna(inplace=True)
 
-    # Perform K-means clustering
+    # 🚫 Prevent running clustering on too little data
+    if len(df) < 3:
+        return JsonResponse({"error": "Not enough complete data for clustering."}, status=400)
+
+    # 🧠 Run K-means
     kmeans = KMeans(n_clusters=3)
     df['cluster'] = kmeans.fit_predict(df)
 
     return JsonResponse(df.to_dict(orient='records'), safe=False)
-
