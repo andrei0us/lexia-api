@@ -78,10 +78,10 @@ WSGI_APPLICATION = 'lexia_api.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'mydb',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
+        'NAME': 'u255088217_mydb',
+        'USER': 'u255088217_pena',
+        'PASSWORD': 'Lexiadb123',
+        'HOST': 'srv1864.hstgr.io',
         'PORT': '3306',
     }
 }
