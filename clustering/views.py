@@ -14,7 +14,7 @@ from django.http import JsonResponse
 def perform_kmeans(request):
     with connection.cursor() as cursor:
         # Adjust this to match your actual table and columns in Hostinger
-        cursor.execute("SELECT accuracy, consistency, speed, retention, problem_solving_skills, vocabulary_range FROM student_progress_tbl")
+        cursor.execute("SELECT accuracy, consistency, speed, retention, problem_solving_skills, vocabulary_range FROM students_progress_tbl")
         rows = cursor.fetchall()
 
     # Convert data to DataFrame
