@@ -4,3 +4,4 @@ mysqlclient
 numpy
 pandas
 scikit-learn
+djangorestframework
