@@ -10,6 +10,7 @@ conda-content-trust @ file:///tmp/build/80754af9/conda-content-trust_16170455945
 conda-package-handling @ file:///C:/ci/conda-package-handling_1618262410900/work
 cryptography @ file:///C:/ci/cryptography_1639414720302/work
 Django==4.2.20
+django-cors-headers==4.7.0
 djangorestframework==3.16.0
 Flask==2.1.2
 gunicorn==23.0.0
@@ -27,6 +28,7 @@ packaging==25.0
 pandas==2.2.3
 pycosat==0.6.3
 pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
+PyMySQL==1.1.1
 pyOpenSSL @ file:///tmp/build/80754af9/pyopenssl_1635333100036/work
 PySocks @ file:///C:/ci/pysocks_1605307512533/work
 python-dateutil==2.9.0.post0
