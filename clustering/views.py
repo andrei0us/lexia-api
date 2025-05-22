@@ -6,37 +6,40 @@ import traceback
 
 def perform_kmeans(request):
     try:
-        # 1. Fetch aggregated per-student performance
+        # 1. Fetch aggregated per-student performance (using readable student identifier)
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
-                    student_id,
-                    AVG(accuracy) AS avg_accuracy,
-                    AVG(consistency) AS avg_consistency,
-                    AVG(speed) AS avg_speed,
-                    AVG(retention) AS avg_retention,
-                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
-                    AVG(vocabulary_range) AS avg_vocabulary_range
-                FROM students_progress_tbl
-                GROUP BY student_id
+                    s.student_identifier,  -- String ID like 'S00001'
+                    sp.student_id,         -- Numeric FK
+                    AVG(sp.accuracy) AS avg_accuracy,
+                    AVG(sp.consistency) AS avg_consistency,
+                    AVG(sp.speed) AS avg_speed,
+                    AVG(sp.retention) AS avg_retention,
+                    AVG(sp.problem_solving_skills) AS avg_problem_solving_skills,
+                    AVG(sp.vocabulary_range) AS avg_vocabulary_range
+                FROM students_progress_tbl AS sp
+                JOIN students_tbl AS s ON s.id = sp.student_id
+                GROUP BY sp.student_id, s.student_identifier
                 HAVING
-                    COUNT(accuracy) > 0 AND
-                    COUNT(consistency) > 0 AND
-                    COUNT(speed) > 0 AND
-                    COUNT(retention) > 0 AND
-                    COUNT(problem_solving_skills) > 0 AND
-                    COUNT(vocabulary_range) > 0
+                    COUNT(sp.accuracy) > 0 AND
+                    COUNT(sp.consistency) > 0 AND
+                    COUNT(sp.speed) > 0 AND
+                    COUNT(sp.retention) > 0 AND
+                    COUNT(sp.problem_solving_skills) > 0 AND
+                    COUNT(sp.vocabulary_range) > 0
             """)
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
 
         df = pd.DataFrame(rows, columns=columns)
-        student_ids = df['student_id']
-        features_df = df.drop(columns=['student_id'])
+
+        # Keep both IDs: use numeric for DB, readable for frontend
+        features_df = df.drop(columns=['student_identifier', 'student_id'])
         features_df.dropna(inplace=True)
 
         if len(features_df) < 3:
-            # Return the current data in student_cluster_data instead
+            # Not enough data — just return current table
             with connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM student_cluster_data")
                 columns = [col[0] for col in cursor.description]
@@ -56,7 +59,7 @@ def perform_kmeans(request):
 
         df['cluster_label'] = pd.Series(cluster_labels, index=features_df.index).map(label_map)
 
-        # 3. Save results to student_cluster_data
+        # 3. Save to student_cluster_data using numeric student_id
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for _, row in df.iterrows():
@@ -85,7 +88,7 @@ def perform_kmeans(request):
                         row['cluster_label']
                     ])
 
-        # 4. Also calculate average metrics per subject (English vs. Science)
+        # 4. Get subject-level averages
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -117,13 +120,15 @@ def perform_kmeans(request):
                 "avg_problem_solving_skills": row["avg_problem_solving_skills"],
                 "avg_vocabulary_range": row["avg_vocabulary_range"]
             }
-
             if row["fk_subject_id"] == 1:
                 subject_averages["english"] = subject_data
             elif row["fk_subject_id"] == 2:
                 subject_averages["science"] = subject_data
 
-        # 5. Return all data as JSON for frontend
+        # 5. Return JSON using student_identifier for frontend merge
+        df['student_id'] = df['student_identifier']  # replace numeric ID with readable one
+        df.drop(columns=['student_identifier'], inplace=True)
+
         return JsonResponse({
             "message": "Clustering completed and saved to student_cluster_data.",
             "clustered_data": df.to_dict(orient='records'),
