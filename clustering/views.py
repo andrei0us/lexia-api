@@ -14,21 +14,8 @@ def perform_kmeans(request):
     """
     try:
         with connection.cursor() as cursor:
-            # --- TEMPORARY DEBUGGING CODE ---
-            # Test direct selection of problem_solving_skills
-            try:
-                cursor.execute("SELECT student_id, problem_solving_skills FROM students_progress_tbl LIMIT 1;")
-                test_row = cursor.fetchone()
-                print(f"DEBUG: Successfully selected 'problem_solving_skills' for a test row. Value: {test_row}")
-            except Exception as test_e:
-                print(f"DEBUG: Failed to select 'problem_solving_skills' directly. Error: {test_e}")
-                print("DEBUG: This confirms the issue is with accessing 'problem_solving_skills' directly.")
-                # You might want to return an error here immediately for clarity during debugging
-                return JsonResponse({"error": f"DEBUG: Problem with 'problem_solving_skills' selection: {str(test_e)}"},
-                                    status=500)
-            # --- END TEMPORARY DEBUGGING CODE ---
-
             # 1. Fetch aggregated performance metrics along with student_id
+            # Removed the in-line SQL comments here.
             cursor.execute("""
                 SELECT
                     student_id,
@@ -36,18 +23,18 @@ def perform_kmeans(request):
                     AVG(consistency) AS avg_consistency,
                     AVG(speed) AS avg_speed,
                     AVG(retention) AS avg_retention,
-                    AVG(problem_solving_skills) AS avg_problem_solving_skills, -- Check this spelling/case *very carefully*
+                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
                     AVG(vocabulary_range) AS avg_vocabulary_range
                 FROM
                     students_progress_tbl
                 GROUP BY
                     student_id
-                HAVING -- Ensure we only cluster students with sufficient data for all metrics
+                HAVING
                     COUNT(accuracy) > 0 AND
                     COUNT(consistency) > 0 AND
                     COUNT(speed) > 0 AND
                     COUNT(retention) > 0 AND
-                    COUNT(problem_solving_skills) > 0 AND -- Check this spelling/case *very carefully*
+                    COUNT(problem_solving_skills) > 0 AND
                     COUNT(vocabulary_range) > 0
             """)
 
@@ -98,7 +85,6 @@ def perform_kmeans(request):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for index, row in df_aggregated.iterrows():
-                    # Removed last_calculated_at from here as per your request
                     cursor.execute("""
                         INSERT INTO student_cluster_data (
                             student_id, avg_accuracy, avg_consistency, avg_speed,
@@ -108,7 +94,7 @@ def perform_kmeans(request):
                         ON DUPLICATE KEY UPDATE
                             avg_accuracy = VALUES(avg_accuracy),
                             avg_consistency = VALUES(avg_consistency),
-                            avg_speed = VALUES(avg_speed),
+                            avg_speed = VALUES(speed),
                             avg_retention = VALUES(avg_retention),
                             avg_problem_solving_skills = VALUES(problem_solving_skills),
                             avg_vocabulary_range = VALUES(vocabulary_range),
