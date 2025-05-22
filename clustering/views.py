@@ -91,8 +91,8 @@ def perform_kmeans(request):
                         INSERT INTO student_cluster_data (
                             student_id, avg_accuracy, avg_consistency, avg_speed,
                             avg_retention, avg_problem_solving_skills, avg_vocabulary_range,
-                            cluster_label, last_calculated_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                            cluster_label
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON DUPLICATE KEY UPDATE
                             avg_accuracy = VALUES(avg_accuracy),
                             avg_consistency = VALUES(avg_consistency),
@@ -100,8 +100,7 @@ def perform_kmeans(request):
                             avg_retention = VALUES(retention),
                             avg_problem_solving_skills = VALUES(problem_solving_skills),
                             avg_vocabulary_range = VALUES(vocabulary_range),
-                            cluster_label = VALUES(cluster_label),
-                            last_calculated_at = NOW()
+                            cluster_label = VALUES(cluster_label)
                     """, [
                         row['student_id'],
                         row['avg_accuracy'],
