@@ -36,7 +36,13 @@ def perform_kmeans(request):
         features_df.dropna(inplace=True)
 
         if len(features_df) < 3:
-            return JsonResponse({"message": "Not enough data for clustering."}, status=200)
+            # Return the current data in student_cluster_data instead
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM student_cluster_data")
+                columns = [col[0] for col in cursor.description]
+                rows = cursor.fetchall()
+            df_existing = pd.DataFrame(rows, columns=columns)
+            return JsonResponse(df_existing.to_dict(orient="records"), safe=False)
 
         # 2. Run KMeans
         kmeans = KMeans(n_clusters=3, random_state=42, n_init='auto')
