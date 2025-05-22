@@ -24,7 +24,7 @@ def perform_kmeans(request):
                     AVG(spr.problem_solving_skills) AS avg_problem_solving_skills,
                     AVG(spr.vocabulary_range) AS avg_vocabulary_range
                 FROM
-                    student_progress_tbl spr
+                    students_progress_tbl spr
                 GROUP BY
                     spr.student_id
                 HAVING -- Ensure we only cluster students with complete data for all metrics
