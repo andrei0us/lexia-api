@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from django.db import transaction
 
 
-def perform_kmeans_and_update_cluster_data(request):
+def perform_kmeans(request):
     """
     This Django view performs K-means clustering on aggregated student performance
     from 'students_progress_tbl' and updates/inserts results into 'student_cluster_data' table.
@@ -66,7 +66,7 @@ def perform_kmeans_and_update_cluster_data(request):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for index, row in df_aggregated.iterrows():
-                cursor.execute(
+                    cursor.execute(
                     "INSERT INTO student_cluster_data (student_id, avg_accuracy, avg_consistency, avg_speed, avg_retention, avg_problem_solving_skills, avg_vocabulary_range, cluster_label) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE avg_accuracy = VALUES(avg_accuracy), avg_consistency = VALUES(avg_consistency), avg_speed = VALUES(avg_speed), avg_retention = VALUES(avg_retention), avg_problem_solving_skills = VALUES(problem_solving_skills), avg_vocabulary_range = VALUES(vocabulary_range), cluster_label = VALUES(cluster_label)",
                     [
                         row['student_id'],
