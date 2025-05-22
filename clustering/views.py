@@ -2,105 +2,121 @@ from django.http import JsonResponse
 from django.db import connection
 import pandas as pd
 from sklearn.cluster import KMeans
-from django.db import transaction # Import transaction for atomicity
+from django.db import transaction  # Import transaction for atomicity
+from django.shortcuts import render  # Can remove if not used elsewhere in this file
 
-def perform_kmeans(request):
-    # This view is intended to be triggered by a backend process (e.g., a cron job),
-    # NOT directly by a user's browser request for immediate analytics display.
-    # If a user hits this directly, it will run the K-means calculation.
 
+def perform_kmeans_and_update_cluster_data(request):
+    """
+    This Django view performs K-means clustering on aggregated student performance
+    from 'students_progress_tbl' and updates/inserts results into 'student_cluster_data' table.
+
+    This should be triggered by a backend cron job/scheduler, not directly by a user.
+    """
     try:
         with connection.cursor() as cursor:
             # 1. Fetch aggregated performance metrics along with student_id
-            # This query calculates the average performance for each student across all their recorded activities.
-            # You might need to adjust the time window for averaging if required (e.g., last 30 days).
+            # We need to average the performance metrics per student across all their records
+            # from the 'students_progress_tbl'.
             cursor.execute("""
                 SELECT
-                    spr.student_id,
-                    AVG(spr.accuracy) AS avg_accuracy,
-                    AVG(spr.consistency) AS avg_consistency,
-                    AVG(spr.speed) AS avg_speed,
-                    AVG(spr.retention) AS avg_retention,
-                    AVG(spr.problem_solving_skills) AS avg_problem_solving_skills,
-                    AVG(spr.vocabulary_range) AS avg_vocabulary_range
+                    student_id,
+                    AVG(accuracy) AS avg_accuracy,
+                    AVG(consistency) AS avg_consistency,
+                    AVG(speed) AS avg_speed,
+                    AVG(retention) AS avg_retention,
+                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
+                    AVG(vocabulary_range) AS avg_vocabulary_range
                 FROM
-                    students_progress_tbl spr
+                    students_progress_tbl
                 GROUP BY
-                    spr.student_id
-                HAVING -- Ensure we only cluster students with complete data for all metrics
-                    COUNT(spr.accuracy) > 0 AND
-                    COUNT(spr.consistency) > 0 AND
-                    COUNT(spr.speed) > 0 AND
-                    COUNT(spr.retention) > 0 AND
-                    COUNT(spr.problem_solving_skills) > 0 AND
-                    COUNT(spr.vocabulary_range) > 0
+                    student_id
+                HAVING -- Ensure we only cluster students with sufficient data for all metrics
+                    COUNT(accuracy) > 0 AND
+                    COUNT(consistency) > 0 AND
+                    COUNT(speed) > 0 AND
+                    COUNT(retention) > 0 AND
+                    COUNT(problem_solving_skills) > 0 AND
+                    COUNT(vocabulary_range) > 0
             """)
-            # Store student_ids separately to map clusters back
+
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
 
         # Convert to DataFrame
-        df = pd.DataFrame(rows, columns=columns)
+        df_aggregated = pd.DataFrame(rows, columns=columns)
 
-        # Ensure that 'student_id' column is treated as an identifier, not a feature for clustering
-        student_ids = df['student_id']
-        features_df = df.drop(columns=['student_id'])
+        # Separate student_id from the features for clustering
+        student_ids_for_clustering = df_aggregated['student_id']
+        features_df = df_aggregated.drop(columns=['student_id'])
 
         # 🚫 Prevent running clustering on too little data
         if len(features_df) < 3:
-            return JsonResponse({"message": "Not enough complete data for clustering. Skipping K-means execution."}, status=200) # Return 200 as it's not an error, just no data
+            return JsonResponse(
+                {"message": "Not enough complete aggregated data for clustering. Skipping K-means execution."},
+                status=200)
 
-        # 🧼 Drop rows that have NaN values (though AVG should handle this, good for robustness)
+        # 🧼 Drop rows from features_df that might have NaN values (e.g., if AVG returned NULL for some reason)
         features_df.dropna(inplace=True)
 
         # Re-check data after dropping NaNs
         if len(features_df) < 3:
-            return JsonResponse({"message": "Not enough complete data for clustering after NaN removal. Skipping K-means execution."}, status=200)
+            return JsonResponse({
+                                    "message": "Not enough complete aggregated data for clustering after NaN removal. Skipping K-means execution."},
+                                status=200)
 
         # 🧠 Run K-means
-        # It's a good practice to set random_state for reproducibility
-        kmeans = KMeans(n_clusters=3, random_state=42, n_init='auto') # n_init='auto' or provide a value for newer sklearn versions
-        cluster_labels = kmeans.fit_predict(features_df)
+        # Adjust n_clusters as needed (e.g., 3, 4, 5 clusters)
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init='auto')
+        cluster_labels_raw = kmeans.fit_predict(features_df)
 
-        # Map cluster labels back to student_ids
-        df['cluster_label'] = pd.Series(cluster_labels, index=features_df.index).map({
-            0: 'Cluster A', # Assign meaningful names
-            1: 'Cluster B',
-            2: 'Cluster C'
-        })
-        # If you want to use the raw cluster numbers, just assign `cluster_labels` directly.
+        # Map raw cluster labels to meaningful names (customize these based on your analysis!)
+        cluster_label_map = {
+            0: 'High Achiever',
+            1: 'Developing Learner',
+            2: 'Needs Support'
+        }
 
-        # 2. Save the clustered data into `student_cluster_data` table
-        # Use a transaction to ensure all updates are atomic
+        # Create a DataFrame that includes student_id, aggregated metrics, and the new cluster_label
+        # Align the cluster labels with the corresponding student_ids and their aggregated metrics
+        df_aggregated['cluster_label'] = pd.Series(cluster_labels_raw, index=features_df.index).map(cluster_label_map)
+
+        # 2. Update/Insert the clustered data into the 'student_cluster_data' table
         with transaction.atomic():
             with connection.cursor() as cursor:
-                # Iterate through the DataFrame to update/insert into student_cluster_data
-                for index, row in df.iterrows():
-                    # Use ON DUPLICATE KEY UPDATE for MySQL or UPSERT for PostgreSQL/SQLite
-                    # Assuming MySQL for this example
+                for index, row in df_aggregated.iterrows():
+                    # Assuming 'student_cluster_data' table has 'student_id' as PRIMARY KEY or UNIQUE
+                    # This allows ON DUPLICATE KEY UPDATE for MySQL
                     cursor.execute("""
                         INSERT INTO student_cluster_data (
                             student_id, avg_accuracy, avg_consistency, avg_speed,
                             avg_retention, avg_problem_solving_skills, avg_vocabulary_range,
-                            cluster_label
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            cluster_label, last_calculated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                         ON DUPLICATE KEY UPDATE
                             avg_accuracy = VALUES(avg_accuracy),
                             avg_consistency = VALUES(avg_consistency),
                             avg_speed = VALUES(avg_speed),
-                            avg_retention = VALUES(avg_retention),
+                            avg_retention = VALUES(retention),
                             avg_problem_solving_skills = VALUES(problem_solving_skills),
                             avg_vocabulary_range = VALUES(vocabulary_range),
-                            cluster_label = VALUES(cluster_label)
+                            cluster_label = VALUES(cluster_label),
+                            last_calculated_at = NOW()
                     """, [
-                        row['student_id'], row['avg_accuracy'], row['avg_consistency'],
-                        row['avg_speed'], row['avg_retention'], row['avg_problem_solving_skills'],
-                        row['avg_vocabulary_range'], row['cluster_label']
+                        row['student_id'],
+                        row['avg_accuracy'],
+                        row['avg_consistency'],
+                        row['avg_speed'],
+                        row['avg_retention'],
+                        row['avg_problem_solving_skills'],
+                        row['avg_vocabulary_range'],
+                        row['cluster_label']
                     ])
 
-        return JsonResponse({"message": "K-means clustering completed and student_cluster_data updated successfully."}, status=200)
+        return JsonResponse(
+            {"message": "K-means clustering completed and 'student_cluster_data' updated successfully."}, status=200)
 
     except Exception as e:
-        # Log the error for debugging
+        # Log the error for debugging. Use Django's proper logging configuration in production.
         print(f"Error during K-means execution: {e}")
         return JsonResponse({"error": f"An error occurred during K-means processing: {str(e)}"}, status=500)
