@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.cluster import KMeans
 from django.db import transaction
 
-def perform_kmeans_and_update_cluster_data(request):
+def perform_kmeans(request):
     try:
         with connection.cursor() as cursor:
             # --- TEMPORARY DEBUGGING CODE ---
