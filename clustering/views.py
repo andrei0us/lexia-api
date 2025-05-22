@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from django.db import transaction
 
 
-def perform_kmeans_and_update_cluster_data(request):
+def perform_kmeans(request):
     """
     This Django view performs K-means clustering on aggregated student performance
     from 'students_progress_tbl' and updates/inserts results into 'student_cluster_data' table.
