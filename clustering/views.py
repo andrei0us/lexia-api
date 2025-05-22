@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from django.db import transaction
 
 
-def perform_kmeans(request):
+def perform_kmeans_and_update_cluster_data(request):
     """
     This Django view performs K-means clustering on aggregated student performance
     from 'students_progress_tbl' and updates/inserts results into 'student_cluster_data' table.
@@ -14,6 +14,20 @@ def perform_kmeans(request):
     """
     try:
         with connection.cursor() as cursor:
+            # --- TEMPORARY DEBUGGING CODE ---
+            # Test direct selection of problem_solving_skills
+            try:
+                cursor.execute("SELECT student_id, problem_solving_skills FROM students_progress_tbl LIMIT 1;")
+                test_row = cursor.fetchone()
+                print(f"DEBUG: Successfully selected 'problem_solving_skills' for a test row. Value: {test_row}")
+            except Exception as test_e:
+                print(f"DEBUG: Failed to select 'problem_solving_skills' directly. Error: {test_e}")
+                print("DEBUG: This confirms the issue is with accessing 'problem_solving_skills' directly.")
+                # You might want to return an error here immediately for clarity during debugging
+                return JsonResponse({"error": f"DEBUG: Problem with 'problem_solving_skills' selection: {str(test_e)}"},
+                                    status=500)
+            # --- END TEMPORARY DEBUGGING CODE ---
+
             # 1. Fetch aggregated performance metrics along with student_id
             cursor.execute("""
                 SELECT
