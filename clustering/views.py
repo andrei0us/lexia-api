@@ -3,6 +3,7 @@ from django.db import connection
 import pandas as pd
 from sklearn.cluster import KMeans
 from django.db import transaction
+import traceback
 
 
 def perform_kmeans(request):
@@ -85,8 +86,11 @@ def perform_kmeans(request):
         )
 
     except Exception as e:
-        print(f"Error during K-means execution: {e}")
-        return JsonResponse(
-            {"error": f"An error occurred during K-means processing: {str(e)}"},
-            status=500
-        )
+        print("⚠️ Full Exception Info:")
+        traceback.print_exc()  # This will print the full traceback in Render logs
+        print("🔍 Exception (repr):", repr(e))  # This gives the raw MySQL error, including internal codes
+
+    return JsonResponse(
+        {"error": f"An error occurred during K-means processing: {str(e)}"},
+        status=500
+    )
