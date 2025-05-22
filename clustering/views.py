@@ -22,7 +22,7 @@ def perform_kmeans(request):
                     AVG(consistency) AS avg_consistency,
                     AVG(speed) AS avg_speed,
                     AVG(retention) AS avg_retention,
-                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
+                    AVG(problem_solving_skills) AS avg_problem_solving_skills, -- Check this spelling/case *very carefully*
                     AVG(vocabulary_range) AS avg_vocabulary_range
                 FROM
                     students_progress_tbl
@@ -33,7 +33,7 @@ def perform_kmeans(request):
                     COUNT(consistency) > 0 AND
                     COUNT(speed) > 0 AND
                     COUNT(retention) > 0 AND
-                    COUNT(problem_solving_skills) > 0 AND
+                    COUNT(problem_solving_skills) > 0 AND -- Check this spelling/case *very carefully*
                     COUNT(vocabulary_range) > 0
             """)
 
@@ -84,8 +84,7 @@ def perform_kmeans(request):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for index, row in df_aggregated.iterrows():
-                    # Assuming 'student_cluster_data' table has 'student_id' as PRIMARY KEY or UNIQUE
-                    # This allows ON DUPLICATE KEY UPDATE for MySQL
+                    # Removed last_calculated_at from here as per your request
                     cursor.execute("""
                         INSERT INTO student_cluster_data (
                             student_id, avg_accuracy, avg_consistency, avg_speed,
@@ -117,7 +116,6 @@ def perform_kmeans(request):
         )
 
     except Exception as e:
-        # Log the error for debugging. Use Django's proper logging configuration in production.
         print(f"Error during K-means execution: {e}")
         return JsonResponse(
             {"error": f"An error occurred during K-means processing: {str(e)}"},
