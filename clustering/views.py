@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 from django.db import transaction
 
 
-def perform_kmeans(request):
+def perform_kmeans_and_update_cluster_data(request):
     """
     This Django view performs K-means clustering on aggregated student performance
     from 'students_progress_tbl' and updates/inserts results into 'student_cluster_data' table.
@@ -15,28 +15,9 @@ def perform_kmeans(request):
     try:
         with connection.cursor() as cursor:
             # 1. Fetch aggregated performance metrics along with student_id
-            # Removed the in-line SQL comments here.
-            cursor.execute("""
-                SELECT
-                    student_id,
-                    AVG(accuracy) AS avg_accuracy,
-                    AVG(consistency) AS avg_consistency,
-                    AVG(speed) AS avg_speed,
-                    AVG(retention) AS avg_retention,
-                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
-                    AVG(vocabulary_range) AS avg_vocabulary_range
-                FROM
-                    students_progress_tbl
-                GROUP BY
-                    student_id
-                HAVING
-                    COUNT(accuracy) > 0 AND
-                    COUNT(consistency) > 0 AND
-                    COUNT(speed) > 0 AND
-                    COUNT(retention) > 0 AND
-                    COUNT(problem_solving_skills) > 0 AND
-                    COUNT(vocabulary_range) > 0
-            """)
+            # *** SQL query on a single line to avoid parsing issues ***
+            cursor.execute(
+                "SELECT student_id, AVG(accuracy) AS avg_accuracy, AVG(consistency) AS avg_consistency, AVG(speed) AS avg_speed, AVG(retention) AS avg_retention, AVG(problem_solving_skills) AS avg_problem_solving_skills, AVG(vocabulary_range) AS avg_vocabulary_range FROM students_progress_tbl GROUP BY student_id HAVING COUNT(accuracy) > 0 AND COUNT(consistency) > 0 AND COUNT(speed) > 0 AND COUNT(retention) > 0 AND COUNT(problem_solving_skills) > 0 AND COUNT(vocabulary_range) > 0")
 
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
@@ -85,21 +66,9 @@ def perform_kmeans(request):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for index, row in df_aggregated.iterrows():
-                    cursor.execute("""
-                        INSERT INTO student_cluster_data (
-                            student_id, avg_accuracy, avg_consistency, avg_speed,
-                            avg_retention, avg_problem_solving_skills, avg_vocabulary_range,
-                            cluster_label
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            avg_accuracy = VALUES(avg_accuracy),
-                            avg_consistency = VALUES(avg_consistency),
-                            avg_speed = VALUES(speed),
-                            avg_retention = VALUES(avg_retention),
-                            avg_problem_solving_skills = VALUES(problem_solving_skills),
-                            avg_vocabulary_range = VALUES(vocabulary_range),
-                            cluster_label = VALUES(cluster_label)
-                    """, [
+                cursor.execute(
+                    "INSERT INTO student_cluster_data (student_id, avg_accuracy, avg_consistency, avg_speed, avg_retention, avg_problem_solving_skills, avg_vocabulary_range, cluster_label) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE avg_accuracy = VALUES(avg_accuracy), avg_consistency = VALUES(avg_consistency), avg_speed = VALUES(avg_speed), avg_retention = VALUES(avg_retention), avg_problem_solving_skills = VALUES(problem_solving_skills), avg_vocabulary_range = VALUES(vocabulary_range), cluster_label = VALUES(cluster_label)",
+                    [
                         row['student_id'],
                         row['avg_accuracy'],
                         row['avg_consistency'],
