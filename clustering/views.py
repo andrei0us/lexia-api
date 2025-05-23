@@ -112,6 +112,44 @@ def perform_kmeans(request):
             "science": {}
         }
 
+        # 4b. Compute per-section subject averages
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    s.fk_section_id,
+                    sp.fk_subject_id,
+                    AVG(sp.accuracy) AS avg_accuracy,
+                    AVG(sp.consistency) AS avg_consistency,
+                    AVG(sp.speed) AS avg_speed,
+                    AVG(sp.retention) AS avg_retention,
+                    AVG(sp.problem_solving_skills) AS avg_problem_solving_skills,
+                    AVG(sp.vocabulary_range) AS avg_vocabulary_range
+                FROM students_progress_tbl sp
+                JOIN students_tbl s ON s.student_id = sp.student_id
+                GROUP BY s.fk_section_id, sp.fk_subject_id
+            """)
+            section_rows = cursor.fetchall()
+            section_columns = [col[0] for col in cursor.description]
+            df_sections = pd.DataFrame(section_rows, columns=section_columns)
+
+        section_subject_averages = {}
+
+        for _, row in df_sections.iterrows():
+            section_id = str(row['fk_section_id'])
+            subject_key = 'english' if row['fk_subject_id'] == 1 else 'science'
+
+            if section_id not in section_subject_averages:
+                section_subject_averages[section_id] = {}
+
+            section_subject_averages[section_id][subject_key] = {
+                "avg_accuracy": row["avg_accuracy"],
+                "avg_consistency": row["avg_consistency"],
+                "avg_speed": row["avg_speed"],
+                "avg_retention": row["avg_retention"],
+                "avg_problem_solving_skills": row["avg_problem_solving_skills"],
+                "avg_vocabulary_range": row["avg_vocabulary_range"]
+            }
+
         for _, row in df_subjects.iterrows():
             subject_data = {
                 "avg_accuracy": row["avg_accuracy"],
@@ -131,7 +169,8 @@ def perform_kmeans(request):
         return JsonResponse({
             "message": "Clustering completed and saved to student_cluster_data.",
             "clustered_data": df.to_dict(orient='records'),
-            "subject_averages": subject_averages
+            "subject_averages": subject_averages,
+            "section_subject_averages": section_subject_averages
         }, status=200)
 
     except Exception:
