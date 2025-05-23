@@ -10,22 +10,24 @@ def perform_kmeans(request):
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
-                    student_id,
-                    AVG(accuracy) AS avg_accuracy,
-                    AVG(consistency) AS avg_consistency,
-                    AVG(speed) AS avg_speed,
-                    AVG(retention) AS avg_retention,
-                    AVG(problem_solving_skills) AS avg_problem_solving_skills,
-                    AVG(vocabulary_range) AS avg_vocabulary_range
-                FROM students_progress_tbl
-                GROUP BY student_id
+                    sp.student_id,
+                    st.fk_section_id,
+                    AVG(sp.accuracy) AS avg_accuracy,
+                    AVG(sp.consistency) AS avg_consistency,
+                    AVG(sp.speed) AS avg_speed,
+                    AVG(sp.retention) AS avg_retention,
+                    AVG(sp.problem_solving_skills) AS avg_problem_solving_skills,
+                    AVG(sp.vocabulary_range) AS avg_vocabulary_range
+                FROM students_progress_tbl sp
+                JOIN students_tbl st ON sp.student_id = st.student_id
+                GROUP BY sp.student_id, st.fk_section_id
                 HAVING
-                    COUNT(accuracy) > 0 AND
-                    COUNT(consistency) > 0 AND
-                    COUNT(speed) > 0 AND
-                    COUNT(retention) > 0 AND
-                    COUNT(problem_solving_skills) > 0 AND
-                    COUNT(vocabulary_range) > 0
+                    COUNT(sp.accuracy) > 0 AND
+                    COUNT(sp.consistency) > 0 AND
+                    COUNT(sp.speed) > 0 AND
+                    COUNT(sp.retention) > 0 AND
+                    COUNT(sp.problem_solving_skills) > 0 AND
+                    COUNT(sp.vocabulary_range) > 0
             """)
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
@@ -62,11 +64,13 @@ def perform_kmeans(request):
                 for _, row in df.iterrows():
                     cursor.execute("""
                         INSERT INTO student_cluster_data (
-                            student_id, avg_accuracy, avg_consistency, avg_speed,
+                            student_id, fk_section_id,
+                            avg_accuracy, avg_consistency, avg_speed,
                             avg_retention, avg_problem_solving_skills, avg_vocabulary_range,
                             cluster_label
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON DUPLICATE KEY UPDATE
+                            fk_section_id = VALUES(fk_section_id),
                             avg_accuracy = VALUES(avg_accuracy),
                             avg_consistency = VALUES(avg_consistency),
                             avg_speed = VALUES(avg_speed),
@@ -76,6 +80,7 @@ def perform_kmeans(request):
                             cluster_label = VALUES(cluster_label)
                     """, [
                         row['student_id'],
+                        row['fk_section_id'],  # new
                         row['avg_accuracy'],
                         row['avg_consistency'],
                         row['avg_speed'],
@@ -84,7 +89,6 @@ def perform_kmeans(request):
                         row['avg_vocabulary_range'],
                         row['cluster_label']
                     ])
-
         # 4. Also calculate average metrics per subject (English vs. Science)
         with connection.cursor() as cursor:
             cursor.execute("""
