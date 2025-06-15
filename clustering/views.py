@@ -41,6 +41,10 @@ def perform_kmeans(request):
         numeric_cols = ['avg_accuracy', 'avg_consistency', 'avg_speed',
                         'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range']
 
+        # Convert Decimal to float to avoid type issues
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
         # Remove rows with any null values or zeros in critical metrics
         df = df.dropna(subset=numeric_cols)
         df = df[(df[numeric_cols] > 0).all(axis=1)]
@@ -60,16 +64,16 @@ def perform_kmeans(request):
             }, status=200)
 
         # 2. Prepare features and scale them
-        features = df[numeric_cols].copy()
+        features = df[numeric_cols].copy().astype(float)  # Ensure all are float type
 
         # Remove outliers using IQR method to improve clustering
         for col in numeric_cols:
-            Q1 = features[col].quantile(0.25)
-            Q3 = features[col].quantile(0.75)
+            Q1 = df[col].quantile(0.25)
+            Q3 = df[col].quantile(0.75)
             IQR = Q3 - Q1
             lower_bound = Q1 - 1.5 * IQR
             upper_bound = Q3 + 1.5 * IQR
-            features[col] = features[col].clip(lower_bound, upper_bound)
+            df[col] = df[col].clip(lower_bound, upper_bound)
 
         scaler = StandardScaler()
         scaled_features = scaler.fit_transform(features)
@@ -104,7 +108,9 @@ def perform_kmeans(request):
         }
 
         # Calculate weighted composite score for each student
-        df['composite_score'] = sum(df[col] * weight for col, weight in weights.items())
+        df['composite_score'] = 0.0
+        for col, weight in weights.items():
+            df['composite_score'] += df[col].astype(float) * weight
 
         # Calculate cluster performance using composite scores
         cluster_stats = df.groupby('cluster').agg({
