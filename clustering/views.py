@@ -2,6 +2,8 @@ from django.http import JsonResponse
 from django.db import connection, transaction
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
 import numpy as np
 import traceback
 
@@ -46,9 +48,24 @@ def perform_kmeans(request):
             df_existing = pd.DataFrame(rows, columns=columns)
             return JsonResponse(df_existing.to_dict(orient="records"), safe=False)
 
-        # 2. Run KMeans
-        kmeans = KMeans(n_clusters=3, random_state=42, n_init='auto')
-        cluster_labels = kmeans.fit_predict(features_df)
+        # 2. Normalize the features
+        scaler = StandardScaler()
+        features_scaled = scaler.fit_transform(features_df)
+
+        # 3. Determine the optimal number of clusters using silhouette score
+        best_n_clusters = 3
+        best_score = -1
+        for n_clusters in range(2, 10):  # Test from 2 to 9 clusters
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
+            cluster_labels = kmeans.fit_predict(features_scaled)
+            score = silhouette_score(features_scaled, cluster_labels)
+            if score > best_score:
+                best_score = score
+                best_n_clusters = n_clusters
+
+        # 4. Run KMeans with the optimal number of clusters
+        kmeans = KMeans(n_clusters=best_n_clusters, random_state=42, n_init='auto')
+        cluster_labels = kmeans.fit_predict(features_scaled)
 
         # Compute cluster performance
         centroids = kmeans.cluster_centers_
@@ -60,7 +77,7 @@ def perform_kmeans(request):
 
         df['cluster_label'] = pd.Series(cluster_labels, index=features_df.index).map(label_map)
 
-        # 3. Save results
+        # 5. Save results
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for _, row in df.iterrows():
@@ -92,7 +109,7 @@ def perform_kmeans(request):
                         row['cluster_label']
                     ])
 
-        # 4. Subject averages (overall)
+        # 6. Subject averages (overall)
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -115,7 +132,7 @@ def perform_kmeans(request):
             "science": {}
         }
 
-        # 4b. Section + Subject breakdowns
+        # 6b. Section + Subject breakdowns
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -166,7 +183,7 @@ def perform_kmeans(request):
             elif row["fk_subject_id"] == 2:
                 subject_averages["science"] = subject_data
 
-        # 5. Final JSON Response
+        # 7. Final JSON Response
         return JsonResponse({
             "message": "Clustering completed and saved to student_cluster_data.",
             "clustered_data": df.to_dict(orient='records'),
