@@ -2,6 +2,7 @@ from django.http import JsonResponse
 from django.db import connection, transaction
 import pandas as pd
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 import traceback
 
@@ -22,23 +23,14 @@ def perform_kmeans(request):
                 FROM students_progress_tbl sp
                 JOIN students_tbl st ON sp.student_id = st.student_id
                 GROUP BY sp.student_id, st.fk_section_id
-                HAVING
-                    COUNT(sp.accuracy) > 0 AND
-                    COUNT(sp.consistency) > 0 AND
-                    COUNT(sp.speed) > 0 AND
-                    COUNT(sp.retention) > 0 AND
-                    COUNT(sp.problem_solving_skills) > 0 AND
-                    COUNT(sp.vocabulary_range) > 0
             """)
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
 
         df = pd.DataFrame(rows, columns=columns)
-        student_ids = df['student_id']
-        features_df = df.drop(columns=['student_id', 'fk_section_id'])
-        features_df.dropna(inplace=True)
+        df.dropna(inplace=True)  # ✅ Remove students with incomplete data
 
-        if len(features_df) < 3:
+        if df.shape[0] < 3:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM student_cluster_data")
                 columns = [col[0] for col in cursor.description]
@@ -46,21 +38,32 @@ def perform_kmeans(request):
             df_existing = pd.DataFrame(rows, columns=columns)
             return JsonResponse(df_existing.to_dict(orient="records"), safe=False)
 
-        # 2. Run KMeans
+        # 2. Prepare features and scale them
+        features = df[['avg_accuracy', 'avg_consistency', 'avg_speed',
+                       'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range']]
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(features)
+
+        # 3. Run KMeans clustering
         kmeans = KMeans(n_clusters=3, random_state=42, n_init='auto')
-        cluster_labels = kmeans.fit_predict(features_df)
+        cluster_labels = kmeans.fit_predict(scaled_features)
+        df['cluster'] = cluster_labels
 
-        # Compute cluster performance
-        centroids = kmeans.cluster_centers_
-        centroid_scores = [(i, np.mean(c)) for i, c in enumerate(centroids)]
-        centroid_scores.sort(key=lambda x: x[1], reverse=True)  # High to low
+        # 4. Assign label names based on actual average cluster performance
+        cluster_performance = df.groupby('cluster')[[
+            'avg_accuracy', 'avg_consistency', 'avg_speed',
+            'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range'
+        ]].mean().mean(axis=1)  # Mean of all metrics per cluster
 
-        label_order = ['High Achiever', 'Developing Learner', 'Needs Support']
-        label_map = {cluster_idx: label_order[i] for i, (cluster_idx, _) in enumerate(centroid_scores)}
+        sorted_clusters = cluster_performance.sort_values(ascending=False).index.tolist()
+        label_map = {
+            sorted_clusters[0]: 'High Achiever',
+            sorted_clusters[1]: 'Developing Learner',
+            sorted_clusters[2]: 'Needs Support'
+        }
+        df['cluster_label'] = df['cluster'].map(label_map)
 
-        df['cluster_label'] = pd.Series(cluster_labels, index=features_df.index).map(label_map)
-
-        # 3. Save results
+        # 5. Save to database
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for _, row in df.iterrows():
@@ -92,7 +95,7 @@ def perform_kmeans(request):
                         row['cluster_label']
                     ])
 
-        # 4. Subject averages (overall)
+        # 6. Subject averages
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -114,8 +117,21 @@ def perform_kmeans(request):
             "english": {},
             "science": {}
         }
+        for _, row in df_subjects.iterrows():
+            data = {
+                "avg_accuracy": row["avg_accuracy"],
+                "avg_consistency": row["avg_consistency"],
+                "avg_speed": row["avg_speed"],
+                "avg_retention": row["avg_retention"],
+                "avg_problem_solving_skills": row["avg_problem_solving_skills"],
+                "avg_vocabulary_range": row["avg_vocabulary_range"]
+            }
+            if row["fk_subject_id"] == 1:
+                subject_averages["english"] = data
+            elif row["fk_subject_id"] == 2:
+                subject_averages["science"] = data
 
-        # 4b. Section + Subject breakdowns
+        # 7. Section + subject breakdown
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -136,14 +152,12 @@ def perform_kmeans(request):
             df_sections = pd.DataFrame(section_rows, columns=section_columns)
 
         section_subject_averages = {}
-
         for _, row in df_sections.iterrows():
-            section_id = str(row['fk_section_id'])
-            subject_key = 'english' if row['fk_subject_id'] == 1 else 'science'
-            if section_id not in section_subject_averages:
-                section_subject_averages[section_id] = {}
-
-            section_subject_averages[section_id][subject_key] = {
+            sec_id = str(row['fk_section_id'])
+            subj = 'english' if row['fk_subject_id'] == 1 else 'science'
+            if sec_id not in section_subject_averages:
+                section_subject_averages[sec_id] = {}
+            section_subject_averages[sec_id][subj] = {
                 "avg_accuracy": row["avg_accuracy"],
                 "avg_consistency": row["avg_consistency"],
                 "avg_speed": row["avg_speed"],
@@ -152,30 +166,15 @@ def perform_kmeans(request):
                 "avg_vocabulary_range": row["avg_vocabulary_range"]
             }
 
-        for _, row in df_subjects.iterrows():
-            subject_data = {
-                "avg_accuracy": row["avg_accuracy"],
-                "avg_consistency": row["avg_consistency"],
-                "avg_speed": row["avg_speed"],
-                "avg_retention": row["avg_retention"],
-                "avg_problem_solving_skills": row["avg_problem_solving_skills"],
-                "avg_vocabulary_range": row["avg_vocabulary_range"]
-            }
-            if row["fk_subject_id"] == 1:
-                subject_averages["english"] = subject_data
-            elif row["fk_subject_id"] == 2:
-                subject_averages["science"] = subject_data
-
-        # 5. Final JSON Response
         return JsonResponse({
-            "message": "Clustering completed and saved to student_cluster_data.",
+            "message": "✅ Clustering complete",
             "clustered_data": df.to_dict(orient='records'),
             "subject_averages": subject_averages,
             "section_subject_averages": section_subject_averages
         }, status=200)
 
     except Exception:
-        print("❌ Full exception during clustering:")
+        print("❌ Error during KMeans clustering:")
         traceback.print_exc()
         return JsonResponse(
             {"error": "Unexpected error occurred. Check logs."},
