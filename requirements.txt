@@ -5,3 +5,5 @@ pandas
 scikit-learn
 django-cors-headers
 djangorestframework
+scikit-learn
+pandas
