@@ -2,5 +2,5 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('kmeans/', views.perform_kmeans),
+    path('algorithm/', views.perform_algorithm),
 ]

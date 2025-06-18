@@ -8,7 +8,7 @@ import traceback
 
 
 @csrf_exempt
-def perform_kmeans(request):
+def perform_algorithm(request):
     try:
         # 1. Fetch student data
         with connection.cursor() as cursor:
