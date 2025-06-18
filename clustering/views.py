@@ -13,26 +13,26 @@ def perform_algorithm(request):
         # 1. Fetch student data
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT
-                    sp.student_id,
-                    st.fk_section_id,
-                    AVG(sp.accuracy) AS avg_accuracy,
-                    AVG(sp.consistency) AS avg_consistency,
-                    AVG(sp.speed) AS avg_speed,
-                    AVG(sp.retention) AS avg_retention,
-                    AVG(sp.problem_solving_skills) AS avg_problem_solving_skills,
-                    AVG(sp.vocabulary_range) AS avg_vocabulary_range
-                FROM students_progress_tbl sp
-                JOIN students_tbl st ON sp.student_id = st.student_id
-                GROUP BY sp.student_id, st.fk_section_id
-                HAVING
-                    COUNT(sp.accuracy) > 0 AND
-                    COUNT(sp.consistency) > 0 AND
-                    COUNT(sp.speed) > 0 AND
-                    COUNT(sp.retention) > 0 AND
-                    COUNT(sp.problem_solving_skills) > 0 AND
-                    COUNT(sp.vocabulary_range) > 0
-            """)
+            #     SELECT
+            #         sp.student_id,
+            #         st.fk_section_id,
+            #         AVG(sp.accuracy) AS avg_accuracy,
+            #         AVG(sp.consistency) AS avg_consistency,
+            #         AVG(sp.speed) AS avg_speed,
+            #         AVG(sp.retention) AS avg_retention,
+            #         AVG(sp.problem_solving_skills) AS avg_problem_solving_skills,
+            #         AVG(sp.vocabulary_range) AS avg_vocabulary_range
+            #     FROM students_progress_tbl sp
+            #     JOIN students_tbl st ON sp.student_id = st.student_id
+            #     GROUP BY sp.student_id, st.fk_section_id
+            #     HAVING
+            #         COUNT(sp.accuracy) > 0 AND
+            #         COUNT(sp.consistency) > 0 AND
+            #         COUNT(sp.speed) > 0 AND
+            #         COUNT(sp.retention) > 0 AND
+            #         COUNT(sp.problem_solving_skills) > 0 AND
+            #         COUNT(sp.vocabulary_range) > 0
+            # """)
             columns = [col[0] for col in cursor.description]
             rows = cursor.fetchall()
 
