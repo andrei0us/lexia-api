@@ -4,13 +4,14 @@ from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
 import traceback
-
 
 @csrf_exempt
 def perform_algorithm(request):
     try:
-        # 1. Fetch student data
+        # 1. Fetch overall student performance data
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -40,46 +41,52 @@ def perform_algorithm(request):
         if df.empty:
             return JsonResponse({"error": "No data found."}, status=400)
 
-        # 2. Label current performance (clustering)
-        def compute_cluster_label(row):
-            avg_score = row[['avg_accuracy', 'avg_consistency', 'avg_speed',
-                             'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range']].mean()
-            if avg_score >= 8.5:
-                return 'High Performance'
-            elif avg_score >= 6.5:
-                return 'Medium Performance'
-            else:
-                return 'Low Performance'
+        # 2. Preprocess
+        perf_cols = [
+            'avg_accuracy', 'avg_consistency', 'avg_speed',
+            'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range'
+        ]
+        df.dropna(subset=perf_cols, inplace=True)
+        df[perf_cols] = df[perf_cols].astype(float)
 
-        df['cluster_label'] = df.apply(compute_cluster_label, axis=1)
-
-        # 3. Train and predict future performance using Random Forest
-        perf_cols = ['avg_accuracy', 'avg_consistency', 'avg_speed',
-                     'avg_retention', 'avg_problem_solving_skills', 'avg_vocabulary_range']
+        # 3. Compute current performance category using quantiles
         df['overall_performance_score'] = df[perf_cols].mean(axis=1)
-
         q1 = df['overall_performance_score'].quantile(0.33)
         q2 = df['overall_performance_score'].quantile(0.67)
-
         bins = [df['overall_performance_score'].min() - 0.01, q1, q2, df['overall_performance_score'].max() + 0.01]
         labels = ['Low Performance', 'Medium Performance', 'High Performance']
         df['overall_performance_category'] = pd.cut(df['overall_performance_score'], bins=bins, labels=labels)
 
+        # 4. Encode labels for model training
         le = LabelEncoder()
-        df['encoded_category'] = le.fit_transform(df['overall_performance_category'])
+        df['label_encoded'] = le.fit_transform(df['overall_performance_category'])
 
+        # 5. Train/test split
+        X = df[perf_cols]
+        y = df['label_encoded']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # 6. Train model using best hyperparameters (pre-tuned)
         model = RandomForestClassifier(
-            criterion='gini',
+            n_estimators=75,
             max_depth=None,
+            min_samples_split=2,
             min_samples_leaf=1,
-            min_samples_split=10,
-            n_estimators=50,
+            criterion='entropy',
             random_state=42
         )
-        model.fit(df[perf_cols], df['encoded_category'])
-        df['pred_performance'] = le.inverse_transform(model.predict(df[perf_cols]))
+        model.fit(X_train, y_train)
 
-        # 4. Save results into student_cluster_data
+        # 7. Evaluate model
+        y_pred = model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        class_report = classification_report(y_test, y_pred, output_dict=True)
+
+        # 8. Predict live
+        df['predicted_label'] = model.predict(X)
+        df['predicted_category'] = le.inverse_transform(df['predicted_label'])
+
+        # 9. Save to DB — exclude pred_performance, rename overall_performance_category to cluster_label
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for _, row in df.iterrows():
@@ -88,8 +95,8 @@ def perform_algorithm(request):
                             student_id, fk_section_id,
                             avg_accuracy, avg_consistency, avg_speed,
                             avg_retention, avg_problem_solving_skills, avg_vocabulary_range,
-                            cluster_label, pred_performance
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            cluster_label
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON DUPLICATE KEY UPDATE
                             fk_section_id = VALUES(fk_section_id),
                             avg_accuracy = VALUES(avg_accuracy),
@@ -98,8 +105,7 @@ def perform_algorithm(request):
                             avg_retention = VALUES(avg_retention),
                             avg_problem_solving_skills = VALUES(avg_problem_solving_skills),
                             avg_vocabulary_range = VALUES(avg_vocabulary_range),
-                            cluster_label = VALUES(cluster_label),
-                            pred_performance = VALUES(pred_performance)
+                            cluster_label = VALUES(cluster_label)
                     """, [
                         row['student_id'],
                         row['fk_section_id'],
@@ -109,11 +115,10 @@ def perform_algorithm(request):
                         row['avg_retention'],
                         row['avg_problem_solving_skills'],
                         row['avg_vocabulary_range'],
-                        row['cluster_label'],
-                        row['pred_performance']
+                        row['overall_performance_category']
                     ])
 
-        # 5. Subject averages
+        # 10. Subject averages
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -144,7 +149,7 @@ def perform_algorithm(request):
             elif row["fk_subject_id"] == 2:
                 subject_averages["science"] = data
 
-        # 6. Section + Subject breakdowns
+        # 11. Section + Subject breakdowns
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -177,14 +182,33 @@ def perform_algorithm(request):
                 "avg_vocabulary_range": row["avg_vocabulary_range"]
             }
 
-        # 7. Return
+        # 12. Final response
+        clustered_data = []
+        for _, row in df.iterrows():
+            clustered_data.append({
+                "student_id": row['student_id'],
+                "fk_section_id": row['fk_section_id'],
+                "avg_accuracy": row['avg_accuracy'],
+                "avg_consistency": row['avg_consistency'],
+                "avg_speed": row['avg_speed'],
+                "avg_retention": row['avg_retention'],
+                "avg_problem_solving_skills": row['avg_problem_solving_skills'],
+                "avg_vocabulary_range": row['avg_vocabulary_range'],
+                "overall_performance_score": row['overall_performance_score'],
+                "overall_performance_category": row['overall_performance_category'],
+                "encoded_category": row['label_encoded'],
+                "pred_performance": row['predicted_category']
+            })
+
         return JsonResponse({
-            "message": "Clustering and prediction complete.",
-            "clustered_data": df.to_dict(orient='records'),
+            "message": "Random Forest prediction and clustering complete.",
+            "model_accuracy": accuracy,
+            "classification_report": class_report,
+            "clustered_data": clustered_data,
             "subject_averages": subject_averages,
             "section_subject_averages": section_subject_averages
         }, status=200)
 
-    except Exception:
+    except Exception as e:
         traceback.print_exc()
-        return JsonResponse({"error": "Unexpected error occurred. Check logs."}, status=500)
+        return JsonResponse({"error": f"Unexpected error occurred: {str(e)}"}, status=500)
